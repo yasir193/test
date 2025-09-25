@@ -120,14 +120,36 @@ export const checkUploadLimit = async (req, res) => {
 
     const uploadLimit = planResult.rows[0].number_of_uploads;
 
-    const countResult = await pool.query(
-      `SELECT COUNT(*) AS file_count FROM tbl_files WHERE user_id = $1`,
+    // Get user's plan_id
+    const userPlanResult = await pool.query(
+      `SELECT fk_plan_id AS plan_id
+         FROM tbl_users
+        WHERE user_id = $1`,
       [userId]
     );
 
-    const fileCount = parseInt(countResult.rows[0].file_count, 10);
+    if (userPlanResult.rowCount === 0 || !userPlanResult.rows[0].plan_id) {
+      return res.status(400).json({
+        allowed: false,
+        message: "User does not have a valid plan",
+      });
+    }
 
-    if (fileCount >= uploadLimit) {
+    const userPlanId = userPlanResult.rows[0].plan_id;
+
+    // Check usage from tbl_user_plan_usage
+    const usageResult = await pool.query(
+      `SELECT number_of_uploads
+         FROM tbl_user_plan_usage
+        WHERE user_id = $1 AND plan_id = $2`,
+      [userId, userPlanId]
+    );
+
+    const usedUploads = usageResult.rows.length
+      ? usageResult.rows[0].number_of_uploads
+      : 0;
+
+    if (usedUploads >= uploadLimit) {
       return res.status(403).json({
         allowed: false,
         message: `Upload limit reached. Your plan allows only ${uploadLimit} uploads.`,
@@ -136,7 +158,7 @@ export const checkUploadLimit = async (req, res) => {
 
     res.json({
       allowed: true,
-      remaining: uploadLimit - fileCount,
+      remaining: uploadLimit - usedUploads,
     });
   } catch (err) {
     res.status(500).json({ allowed: false, message: "Server error" });
@@ -258,16 +280,36 @@ export const checkAnalysisLimit = async (req, res) => {
 
     const analysisLimit = planResult.rows[0].analysis_requests;
 
-    const countResult = await pool.query(
-      `SELECT COUNT(*) AS analysis_count 
-        FROM tbl_files 
-        WHERE user_id = $1 AND analysis IS NOT NULL`,
+    // Get user's plan_id
+    const userPlanResult = await pool.query(
+      `SELECT fk_plan_id AS plan_id
+         FROM tbl_users
+        WHERE user_id = $1`,
       [userId]
     );
 
-    const analysisCount = parseInt(countResult.rows[0].analysis_count, 10);
+    if (userPlanResult.rowCount === 0 || !userPlanResult.rows[0].plan_id) {
+      return res.status(400).json({
+        allowed: false,
+        message: "User does not have a valid plan",
+      });
+    }
 
-    if (analysisCount >= analysisLimit) {
+    const userPlanId = userPlanResult.rows[0].plan_id;
+
+    // Check usage from tbl_user_plan_usage
+    const usageResult = await pool.query(
+      `SELECT analysis_requests
+         FROM tbl_user_plan_usage
+        WHERE user_id = $1 AND plan_id = $2`,
+      [userId, userPlanId]
+    );
+
+    const usedAnalysis = usageResult.rows.length
+      ? usageResult.rows[0].analysis_requests
+      : 0;
+
+    if (usedAnalysis >= analysisLimit) {
       return res.status(403).json({
         allowed: false,
         message: `Analysis limit reached. Your plan allows only ${analysisLimit} analysis.`,
@@ -276,7 +318,7 @@ export const checkAnalysisLimit = async (req, res) => {
 
     res.json({
       allowed: true,
-      remaining: analysisLimit - analysisCount,
+      remaining: analysisLimit - usedAnalysis,
     });
   } catch (err) {
     console.error("Database error:", err);
